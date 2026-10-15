@@ -1,0 +1,50 @@
+# ===== Maven 构建产物 =====
+target/
+*.class
+*.jar
+*.war
+
+# ===== IDE 配置（不共享个人环境） =====
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+.settings/
+.classpath
+.project
+.factorypath
+
+# ===== 日志 =====
+*.log
+logs/
+*.out
+nohup.out
+
+# ===== 敏感配置（含密码/密钥，绝不能提交） =====
+.env
+.env.local
+application-local.yml
+application-dev.yml
+*.secret
+*.pem
+
+# ===== 运行产物与临时文件 =====
+*.pid
+*.lock
+.DS_Store
+Thumbs.db
+*.swp
+*~
+temp/
+tmp/
+
+# ===== Docker 相关（如本地挂载卷数据） =====
+data/
+volumes/
+*.db
+
+# ===== IDE 运行配置（本地独有） =====
+.idea/workspace.xml
+.idea/tasks.xml
+.idea/dictionaries/
