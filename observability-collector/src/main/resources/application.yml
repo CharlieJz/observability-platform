@@ -4,6 +4,10 @@ server:
 spring:
   application:
     name: observability-collector
+  elasticsearch:
+    uris: http://192.168.153.100:9200
+    connection-timeout: 5s
+    socket-timeout: 10s
 
 management:
   endpoints:
