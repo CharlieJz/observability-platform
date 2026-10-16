@@ -1,7 +1,7 @@
 # Observability Platform · 轻量可观测平台
 
 > 面向多微服务场景的轻量级可观测性平台：**日志采集、指标监控、分布式链路追踪、告警管理** 四大能力一站式落地。
-> 技术栈：Spring Boot 3 · Java 17 · Maven 多模块 · Prometheus · Elasticsearch · Zipkin · MySQL · 钉钉机器人
+> 技术栈：Spring Boot 3 · Java 17 · Maven 多模块 · Prometheus · Elasticsearch · Zipkin · MySQL · Grafana · 钉钉机器人
 
 ---
 
@@ -50,6 +50,8 @@
         │  MySQL   │      │ 钉钉机器人 │
         │ 告警记录 │      │ 告警通知  │
         └──────────┘      └──────────┘
+
+        Prometheus ──► Grafana（:3000 可视化大盘，指标一屏展示）
 ```
 
 ---
@@ -85,6 +87,7 @@
 | Prometheus | prometheus | 9090 | 需配置抓取 `prometheus.yml` → 指标服务地址 |
 | Zipkin | zipkin | 9411 | 内存存储，开发演示够用 |
 | MySQL | mysql8 | 3306 | 建库 `observability_alert`，用户/密码见本地配置 |
+| Grafana | grafana | 3000 | 可视化大盘，数据源接 Prometheus |
 
 ### 2. 启动服务
 
@@ -143,6 +146,7 @@ mvn -pl observability-alert spring-boot:run       # 8084
 - **日志接口压测**（JMeter，100 并发，60s）：**11,519 req/s**，错误率 0%，P99 = 14ms
 - **链路追踪**：Zipkin UI 正确展示 3 段跨服务树形调用链（gateway → order-service → inventory-service）
 - **告警闭环**：规则配置 → Prometheus 指标比对 → 触发落库 → 钉钉群实时收到告警消息
+- **可视化大盘**：Grafana 接入 Prometheus，一屏展示业务指标（订单计数）、系统指标（JVM 内存/线程/CPU）、性能指标（HTTP 平均延迟）
 
 ---
 
@@ -161,5 +165,5 @@ mvn -pl observability-alert spring-boot:run       # 8084
 - [x] 指标监控 + Prometheus
 - [x] 链路追踪 + Zipkin
 - [x] 告警管理 + 钉钉通知
-- [ ] Grafana 可视化大盘
+- [x] Grafana 可视化大盘（业务/系统/性能指标一屏展示）
 - [ ] 告警恢复（RESOLVED）与去重机制
