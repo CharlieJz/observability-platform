@@ -75,7 +75,10 @@
   .kind.CLIENT { color: #fbbf24; border: 1px solid #fbbf24; }
   .trace-node .dur { color: #94a3b8; font-size: 12px; margin-left: auto; white-space: nowrap; }
   .trace-child { border-left: 2px solid #334155; margin-left: 14px; padding-left: 8px; }
-  iframe.grafana { width: 100%; height: 520px; border: 0; border-radius: 6px; background: #0f172a; }
+  iframe.grafana { width: 100%; height: 700px; border: 0; border-radius: 6px; background: #0f172a; }
+  /* 嵌入容器：裁掉 Grafana 底部 "Powered by" 页脚水印 */
+  .grafana-wrap { height: 660px; overflow: hidden; border-radius: 6px; }
+  .grafana-wrap iframe { height: 690px; }
   .refresh { font-size: 12px; color: #38bdf8; cursor: pointer; margin-left: auto; }
   .refresh:hover { text-decoration: underline; }
 </style>
@@ -132,10 +135,12 @@
     <div class="card card-full">
       <h2><span class="dot metric"></span> 指标大盘（Grafana）</h2>
       <div class="body">
-        <iframe class="grafana" id="grafanaFrame"
-          src="http://192.168.153.100:3000/d/ad9gqwh/e58faf-e8a782-e6b58b-e5b9b3-e58fb0-e680bb-e8a788?orgId=1&refresh=30s&kiosk&from=now-6h&to=now"
-          onerror="this.outerHTML='<div class=&quot;err&quot;>Grafana 加载失败，请确认服务运行于 192.168.153.100:3000</div>'">
-        </iframe>
+        <div class="grafana-wrap">
+          <iframe class="grafana" id="grafanaFrame"
+            src="http://192.168.153.100:3000/d/ad9gqwh/e58faf-e8a782-e6b58b-e5b9b3-e58fb0-e680bb-e8a788?orgId=1&refresh=30s&kiosk&from=now-6h&to=now"
+            onerror="this.outerHTML='<div class=&quot;err&quot;>Grafana 加载失败，请确认服务运行于 192.168.153.100:3000</div>'">
+          </iframe>
+        </div>
       </div>
     </div>
 
@@ -168,6 +173,8 @@
       // 兼容统一返回体 {code,message,data} 与裸数组两种结构
       const list = Array.isArray(data) ? data : (data.data || []);
       if (list.length === 0) { box.innerHTML = '<div class="empty">未命中日志</div>'; return; }
+      // 按时间倒序（最新在前）
+      list.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
       let html = '<table><tr><th>时间</th><th>服务</th><th>级别</th><th>内容</th><th>traceId</th></tr>';
       for (const d of list) {
         const t = d.timestamp ? new Date(d.timestamp).toLocaleString('zh-CN') : '-';
@@ -280,6 +287,8 @@
       if (data.error) { box.innerHTML = '<div class="err">' + data.error + '</div>'; return; }
       const records = Array.isArray(data) ? data : (data.data || []);
       if (records.length === 0) { box.innerHTML = '<div class="empty">暂无告警记录</div>'; return; }
+      // 按触发时间倒序（最新在前）
+      records.sort((a, b) => String(b.triggerTime || '').localeCompare(String(a.triggerTime || '')));
       let html = '<table><tr><th>时间</th><th>规则</th><th>指标</th><th>实际/阈值</th><th>级别</th><th>状态</th></tr>';
       for (const r of records) {
         const t = r.triggerTime ? r.triggerTime.replace('T',' ').substring(0,19) : '-';
