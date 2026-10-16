@@ -1,8 +1,8 @@
 package com.observability.collector.controller;
 
 import com.observability.collector.document.LogDocument;
-import com.observability.collector.dto.LogEntry;
 import com.observability.collector.service.LogCollectorService;
+import com.observability.common.dto.LogEntry;
 import com.observability.common.model.ApiResponse;
 import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.*;

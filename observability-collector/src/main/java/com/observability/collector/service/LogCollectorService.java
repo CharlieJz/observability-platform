@@ -1,57 +1,47 @@
 package com.observability.collector.service;
 
 import com.observability.collector.document.LogDocument;
-import com.observability.collector.dto.LogEntry;
+import com.observability.collector.mq.LogMessagePublisher;
 import com.observability.collector.repository.LogRepository;
+import com.observability.common.dto.LogEntry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
-import java.time.Instant;
 import java.util.List;
-import java.util.UUID;
 
 /**
  * 日志采集处理服务。
- * 异步消费上报的日志并写入 Elasticsearch，支持后续全文检索。
+ * <p>
+ * 上报链路：接口只负责把日志发布到 RabbitMQ（削峰），collector 保持轻量、秒回；
+ * 日志真正写入 Elasticsearch 由独立的 consumer 模块批量消费完成。
+ * 检索能力保留在本服务（web 前端经由本服务查询 ES）。
  */
 @Service
 public class LogCollectorService {
 
     private static final Logger log = LoggerFactory.getLogger(LogCollectorService.class);
 
+    private final LogMessagePublisher logMessagePublisher;
     private final LogRepository logRepository;
 
-    public LogCollectorService(LogRepository logRepository) {
+    public LogCollectorService(LogMessagePublisher logMessagePublisher, LogRepository logRepository) {
+        this.logMessagePublisher = logMessagePublisher;
         this.logRepository = logRepository;
     }
 
     @Async("logAsyncExecutor")
     public void collect(LogEntry entry) {
-        long ts = entry.getTimestamp() != null ? entry.getTimestamp() : System.currentTimeMillis();
-
-        // 组装 ES 文档：一条日志 = 一个文档
-        LogDocument doc = new LogDocument();
-        // 主键：traceId + 时间戳 + 随机后缀，保证唯一，避免重复上报覆盖
-        String traceId = entry.getTraceId() != null ? entry.getTraceId() : "no-trace";
-        doc.setId(traceId + "-" + ts + "-" + UUID.randomUUID().toString().substring(0, 8));
-        doc.setServiceName(entry.getServiceName());
-        doc.setLevel(entry.getLevel());
-        doc.setMessage(entry.getMessage());
-        doc.setTraceId(traceId);
-        doc.setTimestamp(ts);
-        doc.setTags(entry.getTags());
-
-        // 写入 ES（批量场景下这里会升级为批量写入）
-        logRepository.save(doc);
-
-        log.info("[LOG-STORE] service={} level={} time={} traceId={} -> ES index=logs",
-                entry.getServiceName(), entry.getLevel(), Instant.ofEpochMilli(ts), traceId);
+        // 削峰：日志只进 MQ，由 consumer 批量写 ES，接口不等待 ES 写入
+        logMessagePublisher.publish(entry);
+        log.info("[LOG-PUBLISH] service={} level={} traceId={} -> MQ queue={}",
+                entry.getServiceName(), entry.getLevel(),
+                entry.getTraceId() != null ? entry.getTraceId() : "no-trace", "log.queue");
     }
 
     /**
-     * 全文检索日志：按关键词搜索 message 字段。
+     * 全文检索日志：按关键词搜索 message 与 traceId 字段。
      * 可选按服务名过滤；返回按时间倒序（最近优先）。
      */
     public List<LogDocument> search(String keyword, String serviceName) {

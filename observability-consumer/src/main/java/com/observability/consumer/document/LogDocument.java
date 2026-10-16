@@ -1,40 +1,48 @@
-package com.observability.collector.dto;
+package com.observability.consumer.document;
 
-import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.Pattern;
-import jakarta.validation.constraints.Size;
+import org.springframework.data.annotation.Id;
+import org.springframework.data.elasticsearch.annotations.Document;
+import org.springframework.data.elasticsearch.annotations.Field;
+import org.springframework.data.elasticsearch.annotations.FieldType;
 
 import java.util.Map;
 
 /**
- * 日志采集入参模型。
- * 各微服务通过该结构上报一条日志。
+ * 日志 ES 文档模型（消费端）。
+ * 对应 Elasticsearch 中的 logs 索引，一条日志 = 一个文档。
  */
-public class LogEntry {
+@Document(indexName = "logs")
+public class LogDocument {
 
-    /** 服务名，如 order-service */
-    @NotBlank(message = "serviceName 不能为空")
-    @Size(max = 64, message = "serviceName 长度不能超过 64")
+    /** 文档主键：traceId + 时间戳 + 随机后缀，保证唯一 */
+    @Id
+    private String id;
+
+    @Field(type = FieldType.Keyword)
     private String serviceName;
 
-    /** 日志级别：TRACE / DEBUG / INFO / WARN / ERROR / FATAL */
-    @NotBlank(message = "level 不能为空")
-    @Pattern(regexp = "TRACE|DEBUG|INFO|WARN|ERROR|FATAL", message = "level 必须是 TRACE/DEBUG/INFO/WARN/ERROR/FATAL 之一")
+    @Field(type = FieldType.Keyword)
     private String level;
 
-    /** 日志内容 */
-    @NotBlank(message = "message 不能为空")
-    @Size(max = 65536, message = "message 长度不能超过 65536")
+    @Field(type = FieldType.Text)
     private String message;
 
-    /** 链路追踪 ID（预留，后续与 tracing 模块打通） */
+    @Field(type = FieldType.Keyword)
     private String traceId;
 
-    /** 日志产生时间（毫秒时间戳），为空时由服务端取当前时间 */
+    @Field(type = FieldType.Date)
     private Long timestamp;
 
-    /** 扩展标签，如业务维度、环境信息 */
+    @Field(type = FieldType.Object)
     private Map<String, String> tags;
+
+    public String getId() {
+        return id;
+    }
+
+    public void setId(String id) {
+        this.id = id;
+    }
 
     public String getServiceName() {
         return serviceName;
