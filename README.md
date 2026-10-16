@@ -66,8 +66,8 @@
 
 | 模块 | 端口 | 核心能力 | 存储/对接 |
 |---|---|---|---|
-| **observability-collector** | 8081 | 日志单条/批量上报、参数校验、发布到 RabbitMQ（只收不存，秒回） | RabbitMQ |
-| **observability-consumer** | 8086 | 批量消费日志（攒批 200 条/1s）、写入 ES、手动 ACK、失败进死信队列 | RabbitMQ + Elasticsearch |
+| **observability-collector** | 8081 | 日志上报、参数校验、分级压缩（摘要化）、批量发布到 RabbitMQ（只收不存，秒回） | RabbitMQ |
+| **observability-consumer** | 8086 | 批量消费日志（攒批 200 条/1s）、批量写 ES、手动 ACK、失败进死信队列 | RabbitMQ + Elasticsearch |
 | **observability-metrics** | 8082 | 指标上报（counter/gauge/timer）、Micrometer 注册、Prometheus 暴露 | Prometheus |
 | **observability-tracing** | 8083 | Span 上报、Trace 查询、跨服务调用链模拟 | Zipkin |
 | **observability-alert** | 8084 | 告警规则 CRUD、定时检测引擎、防抖、告警落库、钉钉通知 | MySQL + 钉钉 |
@@ -77,6 +77,8 @@
 ### 技术要点
 
 - **日志削峰**：collector 只收不存，日志发布到 RabbitMQ（队列 durable + 消息持久化 + publisher confirm），ES 宕机不丢、接口秒回
+- **批量发布**：应用层攒批（攒够 100 条或 10ms 发一批），把 N 次 AMQP 网络往返 + N 次落盘 fsync 合并为 1 次，解决单条发布+持久化的吞吐瓶颈；批量消息仍保留 publisher confirm（整批一条 correlation）
+- **分级压缩**：ERROR/WARN 异常日志全量保真（定位错误依据）；INFO/DEBUG 正常日志摘要化——正则抽取 `key=value` 键值对进 tags（结构化保留关键业务信息，可精确检索），message 本体只留短摘要，显著减小 MQ 与 ES 存储压力
 - **批量消费**：consumer 批量监听容器（攒 200 条或 1 秒投递），批量写 ES（一次 bulk），写成功才批量 ACK，失败重试一次后 NACK 进死信队列兜底
 - **指标**：Micrometer `MeterRegistry` 统一注册 Counter/Gauge/Timer，`/actuator/prometheus` 端点暴露，Prometheus 每 15s 拉取
 - **链路**：Span 遵循 Zipkin v2 标准（traceId/spanId 十六进制、parentId 层级），异步转发 Zipkin 展示树形调用链
@@ -240,8 +242,18 @@ management:
 
 ## 验证结果
 
-- **日志接口压测**（JMeter，100 并发，60s，直写 ES 链路）：**11,519 req/s**，错误率 0%，P99 = 14ms
-- **MQ 削峰压测**（Python 50 并发，5000 条，collector 只收消息链路）：**5000/5000 全部成功**，0 失败，0 丢失；日志全部经 MQ 批量消费落库 ES（客户端为压测瓶颈，QPS 以 JMeter 口径为准）
+**日志接口压测**（JMeter，100 并发，60s，线程池口径统一为 2/8/1000，三组单变量对比）：
+
+| 链路 | 线程池 | 吞吐 | 错误率 | P99 |
+|---|---|---|---|---|
+| 直写 ES（原始链路） | 2/8/1000 | 11,519 req/s | 0% | 14ms |
+| 单条发布 + 持久化（首版 MQ） | 2/8/1000 | 2,515 req/s | 0% | 206ms |
+| **批量发布 + 持久化（当前）** | **2/8/1000** | **21,670 req/s** | **0%** | **19ms** |
+
+> 结论：吞吐下降的元凶是"单条发布 + 每条落盘 fsync"；批量发布把网络往返与 fsync 次数合并，吞吐不降反升（接口只发 MQ 不再写 ES），且持久化不丢的保障不变。
+
+- **MQ 链路验证**（Python 50 并发，5000 条，collector 只收消息链路）：**5000/5000 全部成功**，0 失败，0 丢失；日志全部经 MQ 批量消费落库 ES（客户端为压测瓶颈，QPS 以 JMeter 口径为准）
+- **分级压缩验证**：INFO 日志 message 摘要化（≤150 字符 + `[summary]` 标记），`key=value` 键值对自动抽取进 tags 可精确检索；ERROR/WARN 日志全量保留（含完整堆栈）
 - **链路追踪**：Zipkin UI 正确展示 3 段跨服务树形调用链（gateway → order-service → inventory-service）
 - **告警闭环**：规则配置 → Prometheus 指标比对 → 触发落库 → 钉钉群实时收到告警消息
 - **可视化大盘**：Grafana 接入 Prometheus，一屏展示业务指标（订单计数）、系统指标（JVM 内存/线程/CPU）、性能指标（HTTP 平均延迟）
@@ -262,6 +274,8 @@ management:
 **联调发现并修复的问题**：
 1. 日志检索原本只覆盖 `message` 字段，按 traceId 搜索返回空 → 查询改为 `multi_match`（message + traceId 双字段）。
 2. MQ 消息 JSON 携带类名类型头，collector 与 consumer 各自持有 DTO 导致反序列化失败 → `LogEntry` 提升至 `observability-common` 共享，两侧类型头一致。
+3. 批量发布后消息体为 JSON 数组，Spring AMQP 类型头对 List 泛型反序列化不可靠 → consumer 改用 `ObjectMapper + TypeReference<List<LogEntry>>` 直接解析 body，绕开类型头。
+4. 分级压缩后关键信息迁移至 tags → 检索查询由 `message + traceId` 扩展为 `message + traceId + tags.*`，保证按业务键值（如 orderId）可搜。
 
 ---
 
@@ -300,4 +314,6 @@ management:
 - [x] Grafana 可视化大盘（业务/系统/性能指标一屏展示）
 - [x] 统一展示前端（8085 聚合页，日志/链路/告警/指标一页总览）
 - [x] 日志链路接入 RabbitMQ 削峰（collector 只收不存 + consumer 批量写 ES + 死信队列兜底）
+- [x] 批量发布优化（应用层攒批，吞吐 2,515 → 21,670 req/s，持久化保障不变）
+- [x] 日志分级压缩（异常日志全量、正常日志摘要化 + 键值对抽取，减小 ES 存储压力）
 - [ ] 告警静默（silence）与通知升级策略

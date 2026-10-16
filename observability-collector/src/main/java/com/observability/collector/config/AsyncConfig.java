@@ -3,6 +3,7 @@ package com.observability.collector.config;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.scheduling.annotation.EnableAsync;
+import org.springframework.scheduling.annotation.EnableScheduling;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 
 import java.util.concurrent.Executor;
@@ -10,11 +11,15 @@ import java.util.concurrent.ThreadPoolExecutor;
 
 /**
  * 异步线程池配置。
- * 日志采集入口高频写入，使用独立线程池异步处理，
+ * 日志采集入口高频上报，使用独立线程池异步发布到 RabbitMQ，
  * 让接口快速返回，避免阻塞调用方。
+ * <p>
+ * 保持与原直写 ES 链路一致的线程池参数（2/8/1000），
+ * 保证压测对比口径统一：吞吐提升仅来自批量发布，而非线程池扩容。
  */
 @Configuration
 @EnableAsync
+@EnableScheduling
 public class AsyncConfig {
 
     @Bean("logAsyncExecutor")
