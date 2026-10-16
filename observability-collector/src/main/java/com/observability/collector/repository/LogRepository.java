@@ -21,14 +21,14 @@ public interface LogRepository extends ElasticsearchRepository<LogDocument, Stri
     List<LogDocument> findByLevel(String level);
 
     /**
-     * 全文检索：按关键词搜索 message 字段（ES match 查询，分词匹配）。
-     * 返回结果按时间倒序（最近优先）。
+     * 全文检索：按关键词搜索 message 与 traceId 字段（multi_match，分词匹配）。
+     * 支持用 traceId 反查日志；返回结果按时间倒序（最近优先）。
      */
     @Query("""
             {
               "bool": {
                 "must": [
-                  {"match": {"message": "?0"}}
+                  {"multi_match": {"query": "?0", "fields": ["message", "traceId"]}}
                 ],
                 "filter": [
                   {"term": {"serviceName": "?1"}}
@@ -39,11 +39,11 @@ public interface LogRepository extends ElasticsearchRepository<LogDocument, Stri
     List<LogDocument> searchByKeywordAndService(String keyword, String serviceName);
 
     /**
-     * 仅按关键词全文检索（不限定服务）。
+     * 仅按关键词全文检索（不限定服务），覆盖 message 与 traceId 字段。
      */
     @Query("""
             {
-              "match": {"message": "?0"}
+              "multi_match": {"query": "?0", "fields": ["message", "traceId"]}
             }
             """)
     List<LogDocument> searchByKeyword(String keyword);
