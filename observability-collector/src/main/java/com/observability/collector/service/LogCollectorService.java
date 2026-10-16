@@ -9,6 +9,7 @@ import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 
 /**
@@ -47,5 +48,27 @@ public class LogCollectorService {
 
         log.info("[LOG-STORE] service={} level={} time={} traceId={} -> ES index=logs",
                 entry.getServiceName(), entry.getLevel(), Instant.ofEpochMilli(ts), traceId);
+    }
+
+    /**
+     * 全文检索日志：按关键词搜索 message 字段。
+     * 可选按服务名过滤；返回按时间倒序（最近优先）。
+     */
+    public List<LogDocument> search(String keyword, String serviceName) {
+        if (keyword == null || keyword.isBlank()) {
+            return List.of();
+        }
+        List<LogDocument> result;
+        if (serviceName != null && !serviceName.isBlank()) {
+            result = logRepository.searchByKeywordAndService(keyword.trim(), serviceName.trim());
+        } else {
+            result = logRepository.searchByKeyword(keyword.trim());
+        }
+        // 按时间倒序（ES 返回默认按相关度，这里统一按时间排，最近优先）
+        result.sort((a, b) -> Long.compare(
+                b.getTimestamp() == null ? 0L : b.getTimestamp(),
+                a.getTimestamp() == null ? 0L : a.getTimestamp()));
+        log.info("[LOG-SEARCH] keyword={} service={} hits={}", keyword, serviceName, result.size());
+        return result;
     }
 }

@@ -110,6 +110,7 @@ mvn -pl observability-alert spring-boot:run       # 8084
 |---|---|---|
 | POST | `/api/logs` | 上报单条日志 |
 | POST | `/api/logs/batch` | 批量上报日志 |
+| GET | `/api/logs/search?keyword=xxx&serviceName=xxx` | 全文检索日志（keyword 必填，serviceName 可选过滤） |
 
 ### 指标监控（8082）
 | 方法 | 路径 | 说明 |
@@ -156,9 +157,9 @@ mvn -pl observability-alert spring-boot:run       # 8084
 ## Roadmap
 
 - [x] 日志采集 + ES 存储
+- [x] 日志全文检索查询接口（`GET /api/logs/search?keyword=`）
 - [x] 指标监控 + Prometheus
 - [x] 链路追踪 + Zipkin
 - [x] 告警管理 + 钉钉通知
-- [ ] 日志全文检索查询接口（`GET /api/logs/search?keyword=`）
 - [ ] Grafana 可视化大盘
 - [ ] 告警恢复（RESOLVED）与去重机制
