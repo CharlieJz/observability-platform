@@ -32,6 +32,9 @@ public class AlertDetectionService {
     /** 规则连续命中计数器：ruleId -> 连续命中次数（实现防抖） */
     private final Map<Long, Integer> hitCounters = new ConcurrentHashMap<>();
 
+    /** 规则告警状态跟踪：ruleId -> 是否处于 FIRING（用于触发 RESOLVED 恢复） */
+    private final Map<Long, Boolean> firingRules = new ConcurrentHashMap<>();
+
     public AlertDetectionService(AlertRuleRepository ruleRepository,
                                  AlertRecordRepository recordRepository,
                                  PrometheusClient prometheusClient,
@@ -59,12 +62,12 @@ public class AlertDetectionService {
     }
 
     /**
-     * 检测单条规则：查指标 → 比对阈值 → 命中计数 → 触发/记录/通知。
+     * 检测单条规则：查指标 → 比对阈值 → 命中计数 → 触发/记录/通知；未命中 → 恢复。
      */
     private void checkRule(AlertRule rule) {
         Double value = prometheusClient.queryValue(rule.getMetricName());
         if (value == null) {
-            // 指标不存在/查询失败，重置计数（视为未命中）
+            // 指标不存在/查询失败：无法判断是否恢复（可能是服务挂了），仅重置命中计数
             hitCounters.remove(rule.getId());
             return;
         }
@@ -72,7 +75,10 @@ public class AlertDetectionService {
         boolean hit = compare(value, rule.getOperator(), rule.getThreshold());
         if (!hit) {
             hitCounters.remove(rule.getId());
-            // 如果此前一直 FIRING，这里可扩展为 RESOLVED 逻辑
+            // 指标恢复正常：若此前处于告警中，生成恢复记录 + 钉钉"已恢复"通知
+            if (Boolean.TRUE.equals(firingRules.remove(rule.getId()))) {
+                resolve(rule, value);
+            }
             return;
         }
 
@@ -88,7 +94,7 @@ public class AlertDetectionService {
     }
 
     /**
-     * 触发告警：保存记录 + 发送钉钉。
+     * 触发告警：标记告警状态 + 保存记录 + 发送钉钉。
      */
     private void fire(AlertRule rule, Double value) {
         AlertRecord record = new AlertRecord();
@@ -107,7 +113,44 @@ public class AlertDetectionService {
         record.setNotified(notified);
 
         recordRepository.save(record);
+
+        // 标记该规则处于告警中（后续指标恢复正常时据此触发 RESOLVED）
+        firingRules.put(rule.getId(), Boolean.TRUE);
+
         log.info("[ALERT-FIRED] rule={} metric={} value={} threshold={} notified={}",
+                rule.getName(), rule.getMetricName(), value, rule.getThreshold(), notified);
+    }
+
+    /**
+     * 告警恢复：指标恢复正常，生成 RESOLVED 记录 + 发送"已恢复"钉钉通知。
+     * 恢复时沿用最近一条 FIRING 记录的告警级别快照，保持历史可追溯。
+     */
+    private void resolve(AlertRule rule, Double value) {
+        // 沿用最近 FIRING 记录的级别快照（若无则默认 WARN）
+        String severity = "WARN";
+        List<AlertRecord> lastFiring = recordRepository.findTopByRuleIdAndStatusOrderByTriggerTimeDesc(
+                rule.getId(), "FIRING");
+        if (!lastFiring.isEmpty()) {
+            severity = lastFiring.get(0).getSeverity();
+        }
+
+        AlertRecord record = new AlertRecord();
+        record.setRuleId(rule.getId());
+        record.setRuleName(rule.getName());
+        record.setMetricName(rule.getMetricName());
+        record.setActualValue(value);
+        record.setThreshold(rule.getThreshold());
+        record.setSeverity(severity);
+        record.setStatus("RESOLVED");
+        record.setTriggerTime(LocalDateTime.now());
+
+        // 发送"已恢复"钉钉通知
+        boolean notified = "dingtalk".equals(rule.getNotifyType())
+                && dingTalkNotifier.sendResolved(rule.getName(), rule.getMetricName(), value, rule.getThreshold());
+        record.setNotified(notified);
+
+        recordRepository.save(record);
+        log.info("[ALERT-RESOLVED] rule={} metric={} value={} threshold={} notified={}",
                 rule.getName(), rule.getMetricName(), value, rule.getThreshold(), notified);
     }
 

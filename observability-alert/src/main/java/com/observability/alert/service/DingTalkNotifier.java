@@ -63,4 +63,37 @@ public class DingTalkNotifier {
             return false;
         }
     }
+
+    /**
+     * 发送一条告警恢复消息。
+     * 返回 true 表示发送成功（或未配置 webhook，视为跳过）。
+     */
+    public boolean sendResolved(String ruleName, String metricName, Double actualValue, Double threshold) {
+        if (webhook == null || webhook.isBlank()) {
+            log.info("[DINGTALK] 未配置 webhook，跳过通知");
+            return false;
+        }
+        try {
+            String text = String.format(
+                    "【告警恢复】%s\n指标: %s\n当前值: %s | 阈值: %s\n时间: %s",
+                    ruleName, metricName, actualValue, threshold,
+                    LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));
+
+            Map<String, Object> content = new LinkedHashMap<>();
+            content.put("msgtype", "text");
+            content.put("text", Map.of("content", text));
+
+            HttpHeaders headers = new HttpHeaders();
+            headers.setContentType(MediaType.APPLICATION_JSON);
+            HttpEntity<Map<String, Object>> request = new HttpEntity<>(content, headers);
+
+            ResponseEntity<String> resp = restTemplate.postForEntity(webhook, request, String.class);
+            boolean ok = resp.getStatusCode().is2xxSuccessful();
+            log.info("[DINGTALK] 恢复发送结果 status={} body={}", resp.getStatusCode(), resp.getBody());
+            return ok;
+        } catch (Exception e) {
+            log.warn("[DINGTALK] 恢复发送失败: {}", e.getMessage());
+            return false;
+        }
+    }
 }

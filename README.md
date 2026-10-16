@@ -71,7 +71,7 @@
 - **日志**：`@Async` 自定义线程池异步写入 ES（核心 2 / 最大 8 / 队列 1000 / CallerRunsPolicy），接口秒回不阻塞
 - **指标**：Micrometer `MeterRegistry` 统一注册 Counter/Gauge/Timer，`/actuator/prometheus` 端点暴露，Prometheus 每 15s 拉取
 - **链路**：Span 遵循 Zipkin v2 标准（traceId/spanId 十六进制、parentId 层级），异步转发 Zipkin 展示树形调用链
-- **告警**：`@Scheduled` 定时检测引擎（默认 60s/轮），连续命中计数实现防抖，触发后落库 + 钉钉 webhook 通知
+- **告警**：`@Scheduled` 定时检测引擎（默认 60s/轮），连续命中计数实现防抖，触发后落库 + 钉钉 webhook 通知；指标恢复正常自动生成 RESOLVED 记录并推送"已恢复"通知，形成告警生命周期闭环
 - **校验**：Spring Validation（`@NotBlank`/`@Pattern`/`@Size`），统一 `GlobalExceptionHandler` 返回 400/500
 - **安全**：敏感配置（数据库密码、webhook）通过 `.gitignore` 排除，不进入版本库
 
@@ -165,5 +165,6 @@ mvn -pl observability-alert spring-boot:run       # 8084
 - [x] 指标监控 + Prometheus
 - [x] 链路追踪 + Zipkin
 - [x] 告警管理 + 钉钉通知
+- [x] 告警恢复（RESOLVED）机制，指标恢复正常自动通知
 - [x] Grafana 可视化大盘（业务/系统/性能指标一屏展示）
-- [ ] 告警恢复（RESOLVED）与去重机制
+- [ ] 告警静默（silence）与通知升级策略
