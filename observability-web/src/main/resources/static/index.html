@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>可观测平台总览</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: system-ui, -apple-system, "Microsoft YaHei", sans-serif;
+    background: #0f172a; color: #e2e8f0; min-height: 100vh;
+  }
+  header {
+    background: #1e293b; padding: 16px 24px; border-bottom: 2px solid #38bdf8;
+    display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;
+  }
+  header h1 { font-size: 20px; color: #38bdf8; }
+  header .sub { font-size: 13px; color: #94a3b8; }
+  .badge { display: inline-block; padding: 2px 10px; border-radius: 10px; font-size: 12px; font-weight: 600; }
+  .badge.up { background: #052e16; color: #4ade80; border: 1px solid #4ade80; }
+  main { padding: 20px 24px; max-width: 1400px; margin: 0 auto; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 1000px) { .grid { grid-template-columns: 1fr; } }
+  /* 告警与指标卡片占满整行，表格/大盘更宽敞 */
+  .card-full { grid-column: 1 / -1; }
+  .card {
+    background: #1e293b; border: 1px solid #334155; border-radius: 10px; overflow: hidden;
+  }
+  .card h2 {
+    padding: 10px 16px; font-size: 15px; background: #111827;
+    border-bottom: 1px solid #334155; color: #e2e8f0;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .card h2 .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+  .dot.log { background: #fbbf24; } .dot.trace { background: #a78bfa; }
+  .dot.alert { background: #f87171; } .dot.metric { background: #4ade80; }
+  .card .body { padding: 14px 16px; }
+  .toolbar { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+  input, select, button {
+    background: #0f172a; border: 1px solid #475569; color: #e2e8f0;
+    padding: 8px 12px; border-radius: 6px; font-size: 13px; outline: none;
+  }
+  input:focus, select:focus { border-color: #38bdf8; }
+  button { cursor: pointer; background: #0369a1; border-color: #0369a1; font-weight: 600; }
+  button:hover { background: #0284c7; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { text-align: left; padding: 8px 6px; color: #94a3b8; font-weight: 600; border-bottom: 1px solid #334155; }
+  td { padding: 8px 6px; border-bottom: 1px solid #1e293b; word-break: break-all; }
+  tr:hover td { background: #0f172a; }
+  .mono { font-family: Consolas, monospace; font-size: 12px; color: #93c5fd; }
+  .lvl-info { color: #4ade80; } .lvl-warn { color: #fbbf24; } .lvl-error { color: #f87171; }
+  .st-FIRING { color: #f87171; font-weight: 700; }
+  .st-RESOLVED { color: #4ade80; font-weight: 700; }
+  .empty { color: #64748b; text-align: center; padding: 20px; font-size: 13px; }
+  .err { color: #f87171; padding: 10px; font-size: 13px; }
+  .trace-item { cursor: pointer; color: #93c5fd; }
+  .trace-item:hover { text-decoration: underline; }
+  #traceDetail { margin-top: 10px; background: #0f172a; border-radius: 6px; padding: 10px; }
+  #traceDetailPre { font-size: 13px; color: #cbd5e1; max-height: 280px; overflow: auto; }
+  .scroll-box { max-height: 380px; overflow-y: auto; overflow-x: auto; }
+  /* 调用链树形结构 */
+  .trace-node {
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+    padding: 7px 10px; margin: 3px 0; border-radius: 6px;
+    background: #111827; border: 1px solid #1e293b;
+  }
+  .trace-node:hover { border-color: #475569; }
+  .trace-node .svc {
+    font-weight: 700; color: #a78bfa; background: #1e1b4b;
+    padding: 2px 8px; border-radius: 4px; font-size: 12px;
+  }
+  .trace-node .op { color: #e2e8f0; }
+  .trace-node .kind { font-size: 11px; padding: 1px 6px; border-radius: 3px; }
+  .kind.SERVER { color: #4ade80; border: 1px solid #4ade80; }
+  .kind.CLIENT { color: #fbbf24; border: 1px solid #fbbf24; }
+  .trace-node .dur { color: #94a3b8; font-size: 12px; margin-left: auto; white-space: nowrap; }
+  .trace-child { border-left: 2px solid #334155; margin-left: 14px; padding-left: 8px; }
+  iframe.grafana { width: 100%; height: 520px; border: 0; border-radius: 6px; background: #0f172a; }
+  .refresh { font-size: 12px; color: #38bdf8; cursor: pointer; margin-left: auto; }
+  .refresh:hover { text-decoration: underline; }
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>🔭 可观测平台总览</h1>
+    <div class="sub">日志 · 链路 · 告警 · 指标 · 一站式观测</div>
+  </div>
+  <div>
+    <span class="badge up" id="apiStatus">API 待检测</span>
+  </div>
+</header>
+
+<main>
+  <div class="grid">
+
+    <!-- 日志区 -->
+    <div class="card">
+      <h2><span class="dot log"></span> 日志检索（ES 全文检索）</h2>
+      <div class="body">
+        <div class="toolbar">
+          <input id="logKeyword" placeholder="关键词，如：订单 / 1001" style="flex:2">
+          <input id="logService" placeholder="服务名（可选）" style="flex:1">
+          <button onclick="searchLogs()">搜索</button>
+        </div>
+        <div id="logResult" class="scroll-box"></div>
+      </div>
+    </div>
+
+    <!-- 链路区 -->
+    <div class="card">
+      <h2><span class="dot trace"></span> 链路追踪（Zipkin）<span class="refresh" onclick="loadTraces()">↻ 刷新</span></h2>
+      <div class="body">
+        <div id="traceList"></div>
+        <div id="traceDetail" style="display:none">
+          <div style="color:#94a3b8;font-size:12px;margin-bottom:6px;">调用链详情：</div>
+          <div id="traceDetailPre"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 告警区 -->
+    <div class="card card-full">
+      <h2><span class="dot alert"></span> 告警记录（触发/恢复闭环）<span class="refresh" onclick="loadAlerts()">↻ 刷新</span></h2>
+      <div class="body">
+        <div id="alertResult" class="scroll-box"></div>
+      </div>
+    </div>
+
+    <!-- 指标区 -->
+    <div class="card card-full">
+      <h2><span class="dot metric"></span> 指标大盘（Grafana）</h2>
+      <div class="body">
+        <iframe class="grafana" id="grafanaFrame"
+          src="http://192.168.153.100:3000/d/ad9gqwh/e58faf-e8a782-e6b58b-e5b9b3-e58fb0-e680bb-e8a788?orgId=1&refresh=30s&kiosk&from=now-6h&to=now"
+          onerror="this.outerHTML='<div class=&quot;err&quot;>Grafana 加载失败，请确认服务运行于 192.168.153.100:3000</div>'">
+        </iframe>
+      </div>
+    </div>
+
+  </div>
+</main>
+
+<script>
+  // ---------- API 状态检测 ----------
+  async function checkApi() {
+    try {
+      const r = await fetch('/api/logs/search?keyword=__probe__');
+      document.getElementById('apiStatus').textContent = '● API 正常';
+      document.getElementById('apiStatus').className = 'badge up';
+    } catch (e) {
+      document.getElementById('apiStatus').textContent = '● API 异常';
+    }
+  }
+
+  // ---------- 日志搜索 ----------
+  async function searchLogs() {
+    const kw = document.getElementById('logKeyword').value.trim();
+    const sv = document.getElementById('logService').value.trim();
+    if (!kw) { document.getElementById('logResult').innerHTML = '<div class="err">请输入关键词</div>'; return; }
+    const box = document.getElementById('logResult');
+    box.innerHTML = '<div class="empty">搜索中…</div>';
+    try {
+      const url = '/api/logs/search?keyword=' + encodeURIComponent(kw) + (sv ? '&serviceName=' + encodeURIComponent(sv) : '');
+      const resp = await fetch(url);
+      const data = await resp.json();
+      // 兼容统一返回体 {code,message,data} 与裸数组两种结构
+      const list = Array.isArray(data) ? data : (data.data || []);
+      if (list.length === 0) { box.innerHTML = '<div class="empty">未命中日志</div>'; return; }
+      let html = '<table><tr><th>时间</th><th>服务</th><th>级别</th><th>内容</th><th>traceId</th></tr>';
+      for (const d of list) {
+        const t = d.timestamp ? new Date(d.timestamp).toLocaleString('zh-CN') : '-';
+        const lv = (d.level || '').toLowerCase();
+        html += `<tr><td style="white-space:nowrap">${t}</td><td>${d.serviceName||'-'}</td>` +
+                `<td class="lvl-${lv}">${d.level||'-'}</td><td>${d.message||'-'}</td>` +
+                `<td class="mono">${d.traceId||'-'}</td></tr>`;
+      }
+      html += '</table>';
+      box.innerHTML = html;
+    } catch (e) {
+      box.innerHTML = '<div class="err">请求失败: ' + e.message + '</div>';
+    }
+  }
+
+  // ---------- 链路列表 ----------
+  async function loadTraces() {
+    const box = document.getElementById('traceList');
+    box.innerHTML = '<div class="empty">加载中…</div>';
+    try {
+      const resp = await fetch('/api/tracing/traces');
+      const data = await resp.json();
+      if (data.error) { box.innerHTML = '<div class="err">' + data.error + '</div>'; return; }
+      const traces = Array.isArray(data) ? data : (data.data || []);
+      if (traces.length === 0) { box.innerHTML = '<div class="empty">暂无链路数据，可先调用 simulate 接口生成</div>'; return; }
+      let html = '<table><tr><th>traceId（点击查看调用链）</th></tr>';
+      for (const t of traces) {
+        const id = typeof t === 'string' ? t : (t.traceId || '');
+        html += `<tr><td class="mono trace-item" onclick="showTrace('${id}')">${id}</td></tr>`;
+      }
+      html += '</table>';
+      box.innerHTML = html;
+    } catch (e) {
+      box.innerHTML = '<div class="err">请求失败: ' + e.message + '</div>';
+    }
+  }
+
+  // ---------- 链路详情（树形展示） ----------
+  async function showTrace(traceId) {
+    const box = document.getElementById('traceDetail');
+    box.style.display = 'block';
+    const pre = document.getElementById('traceDetailPre');
+    pre.innerHTML = '<div class="empty">加载中…</div>';
+    try {
+      const resp = await fetch('/api/tracing/traces/' + traceId);
+      const text = await resp.text();
+      let spans;
+      try { spans = JSON.parse(text); } catch (e) { pre.textContent = '解析失败: ' + text; return; }
+      // 兼容统一返回体 {code,message,data} 与裸数组两种结构
+      if (!Array.isArray(spans)) { spans = spans.data || []; }
+      if (spans.length === 0) { pre.innerHTML = '<div class="empty">该链路无 span 数据</div>'; return; }
+      pre.innerHTML = buildTraceTree(spans);
+    } catch (e) {
+      pre.innerHTML = '<div class="err">请求失败: ' + e.message + '</div>';
+    }
+  }
+
+  // 把 spans 数组构建成树形 HTML（按 parentId 关联层级）
+  function buildTraceTree(spans) {
+    const byId = {};
+    spans.forEach(s => { if (s.spanId) byId[s.spanId] = s; });
+    const children = {};
+    spans.forEach(s => {
+      if (s.parentId && byId[s.parentId]) {
+        (children[s.parentId] = children[s.parentId] || []).push(s);
+      }
+    });
+    // 根节点：无 parentId，或 parentId 不在本链中
+    const roots = spans.filter(s => !s.parentId || !byId[s.parentId]);
+
+    let html = '<div class="trace-tree">';
+    const render = (span) => {
+      const dur = fmtDuration(span.duration);
+      const kind = span.kind || '';
+      html += '<div>' +
+        '<div class="trace-node">' +
+        '<span class="svc">' + (span.serviceName || '?') + '</span>' +
+        '<span class="op">' + (span.name || '') + '</span>' +
+        (kind ? '<span class="kind ' + kind + '">' + kind + '</span>' : '') +
+        '<span class="dur">⏱ ' + dur + '</span>' +
+        '</div>';
+      const kids = children[span.spanId] || [];
+      if (kids.length > 0) {
+        html += '<div class="trace-child">';
+        kids.forEach(render);
+        html += '</div>';
+      }
+      html += '</div>';
+    };
+    roots.forEach(render);
+    html += '</div>';
+    return html;
+  }
+
+  // 时长格式化：Zipkin 单位为微秒(µs)
+  function fmtDuration(dur) {
+    if (dur == null) return '-';
+    if (dur >= 1000000) return (dur / 1000000).toFixed(2) + ' s';
+    if (dur >= 1000) return (dur / 1000).toFixed(1) + ' ms';
+    return dur + ' µs';
+  }
+
+  // ---------- 告警记录 ----------
+  async function loadAlerts() {
+    const box = document.getElementById('alertResult');
+    box.innerHTML = '<div class="empty">加载中…</div>';
+    try {
+      const resp = await fetch('/api/alerts/records');
+      const data = await resp.json();
+      if (data.error) { box.innerHTML = '<div class="err">' + data.error + '</div>'; return; }
+      const records = Array.isArray(data) ? data : (data.data || []);
+      if (records.length === 0) { box.innerHTML = '<div class="empty">暂无告警记录</div>'; return; }
+      let html = '<table><tr><th>时间</th><th>规则</th><th>指标</th><th>实际/阈值</th><th>级别</th><th>状态</th></tr>';
+      for (const r of records) {
+        const t = r.triggerTime ? r.triggerTime.replace('T',' ').substring(0,19) : '-';
+        html += `<tr><td style="white-space:nowrap">${t}</td><td>${r.ruleName||'-'}</td>` +
+                `<td class="mono">${r.metricName||'-'}</td><td style="white-space:nowrap">${r.actualValue||'-'} / ${r.threshold||'-'}</td>` +
+                `<td style="white-space:nowrap">${r.severity||'-'}</td><td style="white-space:nowrap" class="st-${r.status}">${r.status||'-'}</td></tr>`;
+      }
+      html += '</table>';
+      box.innerHTML = html;
+    } catch (e) {
+      box.innerHTML = '<div class="err">请求失败: ' + e.message + '</div>';
+    }
+  }
+
+  // ---------- 初始化 ----------
+  checkApi();
+  searchLogs();
+  loadTraces();
+  loadAlerts();
+  setInterval(function() {
+    searchLogs(); loadTraces(); loadAlerts();
+  }, 30000);
+</script>
+</body>
+</html>

@@ -25,6 +25,7 @@
         <module>observability-metrics</module>
         <module>observability-tracing</module>
         <module>observability-alert</module>
+        <module>observability-web</module>
     </modules>
 
     <properties>
