@@ -48,3 +48,6 @@ volumes/
 .idea/workspace.xml
 .idea/tasks.xml
 .idea/dictionaries/
+
+# ===== 各服务本地环境配置（含密码/地址，不入库） =====
+observability-*/src/main/resources/application.yml
