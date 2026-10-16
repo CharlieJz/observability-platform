@@ -1,7 +1,5 @@
 package com.observability.consumer.document;
 
-import org.springframework.data.annotation.Id;
-import org.springframework.data.elasticsearch.annotations.Document;
 import org.springframework.data.elasticsearch.annotations.Field;
 import org.springframework.data.elasticsearch.annotations.FieldType;
 
@@ -9,13 +7,12 @@ import java.util.Map;
 
 /**
  * 日志 ES 文档模型（消费端）。
- * 对应 Elasticsearch 中的 logs 索引，一条日志 = 一个文档。
+ * 对应 Elasticsearch 中的按天索引 logs-yyyy.MM.dd，一条日志 = 一个文档。
+ * 由批量监听器经底层 client bulk 写入（不经过 Spring Data repository，索引名按天动态指定）。
  */
-@Document(indexName = "logs")
 public class LogDocument {
 
     /** 文档主键：traceId + 时间戳 + 随机后缀，保证唯一 */
-    @Id
     private String id;
 
     @Field(type = FieldType.Keyword)

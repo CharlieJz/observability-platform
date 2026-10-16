@@ -5,14 +5,17 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.observability.common.dto.LogEntry;
 import com.observability.consumer.config.RabbitConfig;
 import com.observability.consumer.document.LogDocument;
-import com.observability.consumer.repository.LogRepository;
 import com.rabbitmq.client.Channel;
+import org.elasticsearch.client.Request;
+import org.elasticsearch.client.RestClient;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.amqp.core.Message;
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
 import org.springframework.stereotype.Component;
 
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -24,7 +27,7 @@ import java.util.UUID;
  * 本类收到批量容器投递的一批消息后负责：
  * <ul>
  *   <li>拆包解析：每条消息解析出 List&lt;LogEntry&gt;，逐条转为 ES 文档（解析失败的单独 NACK 进死信队列）；</li>
- *   <li>批量写入 ES（saveAll 一次 bulk）；</li>
+ *   <li>按天索引批量写入 ES（logs-yyyy.MM.dd，一次 bulk，ILM 自动淘汰）；</li>
  *   <li>写入成功 → 批量 ACK（multiple=true），消息从 MQ 删除；</li>
  *   <li>写入失败 → 重试一次；仍失败 → 批量 NACK（requeue=false）进死信队列兜底。</li>
  * </ul>
@@ -40,12 +43,13 @@ public class LogBatchListener {
 
     private static final TypeReference<List<LogEntry>> LIST_TYPE = new TypeReference<>() {
     };
+    private static final DateTimeFormatter INDEX_DATE = DateTimeFormatter.ofPattern("yyyy.MM.dd");
 
-    private final LogRepository logRepository;
+    private final RestClient restClient;
     private final ObjectMapper objectMapper;
 
-    public LogBatchListener(LogRepository logRepository, ObjectMapper objectMapper) {
-        this.logRepository = logRepository;
+    public LogBatchListener(RestClient restClient, ObjectMapper objectMapper) {
+        this.restClient = restClient;
         this.objectMapper = objectMapper;
     }
 
@@ -74,16 +78,16 @@ public class LogBatchListener {
         }
 
         try {
-            logRepository.saveAll(docs);
+            writeToEs(docs);
             channel.basicAck(maxTag, true);
-            log.info("[ES-WRITE] batch={} -> ES index=logs, ack tags <= {}", docs.size(), maxTag);
+            log.info("[ES-WRITE] batch={} -> ES index=logs-{}, ack tags <= {}", docs.size(), indexDate(), maxTag);
         } catch (Exception e) {
             // 写 ES 失败：重试一次，应对瞬时抖动
             try {
                 Thread.sleep(500);
-                logRepository.saveAll(docs);
+                writeToEs(docs);
                 channel.basicAck(maxTag, true);
-                log.info("[ES-WRITE-RETRY-OK] batch={} -> ES index=logs, ack tags <= {}", docs.size(), maxTag);
+                log.info("[ES-WRITE-RETRY-OK] batch={} -> ES index=logs-{}, ack tags <= {}", docs.size(), indexDate(), maxTag);
             } catch (Exception retryEx) {
                 // 仍失败：整批不 requeue，进死信队列兜底（ES 恢复后可人工/定时重投）
                 channel.basicNack(maxTag, true, false);
@@ -110,5 +114,32 @@ public class LogBatchListener {
             docs.add(doc);
         }
         return docs;
+    }
+
+    private String indexDate() {
+        return LocalDate.now().format(INDEX_DATE);
+    }
+
+    /** 按天索引一次 bulk 写入（模板自动挂 ILM 策略 + logs 别名）。
+     *  严格检查响应：任一文档写入失败即抛异常，由外层走重试/死信，绝不 ACK 丢数据。 */
+    private void writeToEs(List<LogDocument> docs) throws Exception {
+        String index = "logs-" + indexDate();
+        StringBuilder body = new StringBuilder(docs.size() * 512);
+        for (LogDocument doc : docs) {
+            body.append("{\"index\":{\"_index\":\"")
+                    .append(index)
+                    .append("\",\"_id\":\"")
+                    .append(doc.getId())
+                    .append("\"}}\n");
+            body.append(objectMapper.writeValueAsString(doc)).append('\n');
+        }
+        Request request = new Request("POST", "/_bulk");
+        request.setJsonEntity(body.toString());
+        var response = restClient.performRequest(request);
+        String respBody = org.apache.http.util.EntityUtils.toString(
+                response.getEntity(), java.nio.charset.StandardCharsets.UTF_8);
+        if (respBody.contains("\"errors\":true")) {
+            throw new IllegalStateException("bulk 写入存在失败文档: " + respBody.substring(0, Math.min(800, respBody.length())));
+        }
     }
 }

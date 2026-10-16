@@ -9,9 +9,11 @@ import java.util.Map;
 
 /**
  * 日志 ES 文档模型。
- * 对应 Elasticsearch 中的 logs 索引，一条日志 = 一个文档。
+ * 对应 Elasticsearch 中的 logs 别名（聚合 logs-* 按天索引），一条日志 = 一个文档。
+ * createIndex=false：索引/别名由 consumer 的索引模板统一管理，禁止本服务自动创建
+ * （否则会创建出名为 logs 的空索引，与模板别名同名冲突，导致写入失败）。
  */
-@Document(indexName = "logs")
+@Document(indexName = "logs", createIndex = false)
 public class LogDocument {
 
     /** 文档主键：traceId + 时间戳，保证唯一 */
