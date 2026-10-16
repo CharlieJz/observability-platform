@@ -236,6 +236,20 @@ management:
 - **可视化大盘**：Grafana 接入 Prometheus，一屏展示业务指标（订单计数）、系统指标（JVM 内存/线程/CPU）、性能指标（HTTP 平均延迟）
 - **统一展示前端**：8085 总览页聚合日志检索、链路树形、告警记录（触发/恢复）、Grafana 大盘，匿名嵌入免登录
 
+### 全链路联调验证
+
+用一个统一 traceId 贯穿日志、指标、链路三大模块，验证平台闭环：
+
+| 步骤 | 操作 | 验证结果 |
+|---|---|---|
+| ① 日志 | 上报订单日志（携带 traceId） | 异步写入 ES，按 traceId 全文检索命中 |
+| ② 指标 | 上报订单创建计数 +5×5 | Prometheus 指标递增，Grafana 曲线可见 |
+| ③ 链路 | 上报 gateway→order→inventory 三段 Span | 树形展示父子关系正确（链路根 → 子节点） |
+| ④ 检索 | 用同一 traceId 搜索日志 | `multi_match` 覆盖 message+traceId，命中关联日志 |
+| ⑤ 告警 | 指标触发规则 | FIRING 落库 + 钉钉实时通知；指标恢复后自动 RESOLVED |
+
+**联调发现并修复的问题**：日志检索原本只覆盖 `message` 字段，按 traceId 搜索返回空 → 查询改为 `multi_match`（message + traceId 双字段）。
+
 ---
 
 ## 界面展示
